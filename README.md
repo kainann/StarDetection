@@ -9,7 +9,7 @@ Outil de détection de signatures radar pour Star Citizen.
 
 ## Utilisation
 1. Lancez Star Detection
-2. Faites un ping sur un rocher pour afficher la signature radar
+2. Faites un ping pour afficher la signature radar
 3. Cliquez sur Calibrer et dessinez la zone autour du nombre
 4. Cliquez sur Lancer
 5. Alt+Tab pour revenir sur Star Detection pendant le jeu
