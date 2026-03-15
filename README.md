@@ -1,6 +1,6 @@
 # Star Detection v0.2
 
-Outil de détection de signatures radar pour Star Citizen.
+Outil de détection de signatures radar pour Star Citizen 4.7.
 
 ## Installation
 1. Téléchargez StarDetection_Setup_v0.2.exe
