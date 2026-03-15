@@ -7,14 +7,24 @@ Outil de détection de signatures radar pour Star Citizen.
 2. Lancez l'installeur et suivez les instructions
 3. Un raccourci apparaît sur le bureau
 
-Tesseract OCR est inclus automatiquement, aucune installation supplémentaire nécessaire.
-
 ## Utilisation
 1. Lancez Star Detection
-2. Cliquez sur Calibrer et dessinez la zone autour de la signature radar
-3. Cliquez sur Lancer
-4. Alt+Tab pour revenir sur Star Detection pendant le jeu
+2. Faites un ping sur un rocher pour afficher la signature radar
+3. Cliquez sur Calibrer et dessinez la zone autour du nombre
+4. Cliquez sur Lancer
+5. Alt+Tab pour revenir sur Star Detection pendant le jeu
 
+## Fonctionnalités
+- Détection automatique de signatures radar par OCR
+- Correspondance avec une liste de minerais
+- Système de préférences
+- Tesseract OCR intégré, aucune installation supplémentaire
+
+## Configuration requise
+- Windows 10/11 64-bit
+- 400 Mo d'espace disque libre
+- Résolution minimum : 1920x1080
+  
 ## Crédits
 - Par Kainan & Claude AI
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — Apache 2.0 License
