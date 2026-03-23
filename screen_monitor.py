@@ -283,6 +283,7 @@ def preprocess_night(img):
     kernel = np.ones((2, 2), np.uint8)
     binary = cv2.dilate(binary, kernel, iterations=1)
     return binary
+
 MAX_MULT  = 50   # multiplicateur maximum autorisé par rocher
 
 TESS_CONFIG_PSM7 = "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789"
@@ -520,24 +521,15 @@ def read_number(img, lookup=None):
     return None
 
 def _get_variantes_direct(candidate):
-    """Génère les variantes directes (1 niveau) d'une valeur OCR.
-    Modélise les erreurs typiques de Tesseract sur des chiffres :
-    - insertion/duplication de '1' (trait fin parasite)
-    - confusion entre chiffres similaires visuellement
-    - suppression du premier chiffre (crop trop serré)
-    Ne génère PAS de valeurs plus longues que candidate+1 pour éviter
-    de filtrer de vraies nouvelles signatures plus courtes."""
+    """Génère les variantes directes (1 niveau) d'une valeur OCR."""
     variantes = set()
     variantes.add(candidate)
-    # Insertion d'un '1' parasite n'importe où (ex: 1740 → 11740, 17140)
     variantes.add("1" + candidate)
     for i in range(1, len(candidate)):
         variantes.add(candidate[:i] + "1" + candidate[i:])
-    # Duplication d'un '1' existant (ex: 17140 → 117140)
     for i, c in enumerate(candidate):
         if c == "1":
             variantes.add(candidate[:i] + "11" + candidate[i+1:])
-    # Confusions visuelles entre chiffres
     CONFUSIONS = {
         "8": ["6", "5", "3", "0"],
         "6": ["8", "5"],
@@ -551,23 +543,17 @@ def _get_variantes_direct(candidate):
     for i, c in enumerate(candidate):
         for replacement in CONFUSIONS.get(c, []):
             variantes.add(candidate[:i] + replacement + candidate[i+1:])
-    # Suppression d'un '1' ou '7' parasite en début
     if len(candidate) > 4 and candidate[0] in ("1", "7"):
         variantes.add(candidate[1:])
-    # Cas spécial : '71200' → '7200' (le '1' après le '7' est parasite)
-    # Quand le premier chiffre est '7' et le second est '1', supprime le '1'
     if len(candidate) > 4 and candidate[0] == "7" and candidate[1] == "1":
         variantes.add(candidate[0] + candidate[2:])
-    # Suppression d'un chiffre dupliqué consécutif (ex: 11140 → 1140)
     for i in range(len(candidate) - 1):
         if candidate[i] == candidate[i+1]:
             variantes.add(candidate[:i] + candidate[i+1:])
     return variantes
 
 def _get_variantes(candidate, mapping=None, lookup=None):
-    """Génère les variantes (profondeur 2) d'une valeur confirmée.
-    Avec lookup : débloque uniquement les valeurs CSV de longueur très différente
-    (diff >= 2) — les valeurs proches restent bloquées même si elles matchent CSV."""
+    """Génère les variantes (profondeur 2) d'une valeur confirmée."""
     if not candidate:
         return set()
     min_len = len(candidate) - 1
@@ -576,11 +562,6 @@ def _get_variantes(candidate, mapping=None, lookup=None):
         seen.update(_get_variantes_direct(v))
     result = {v for v in seen if v.isdigit() and len(v) >= 3 and len(v) >= min_len}
     if lookup:
-        # Garde une valeur dans les variantes bloquantes si :
-        # - c'est le candidat lui-même, OU
-        # - elle ne matche pas dans le CSV (artefact pur), OU
-        # - elle matche CSV mais sa longueur est proche (diff < 2) → artefact OCR
-        # Débloque uniquement si CSV ET longueur très différente (vraie transition)
         result = {v for v in result
                   if v == candidate
                   or not lookup.get(v)
@@ -603,16 +584,15 @@ def _sort_key(match):
     sig, nom, contenu, rarete, mult = match
     try:
         r = int(rarete)
-        has_rarete = 1  # a une rareté → passe après
+        has_rarete = 1
     except (ValueError, TypeError):
         r = 0
-        has_rarete = 0  # sans rareté → en premier
+        has_rarete = 0
     return (has_rarete, r, mult)
 
 def find_matches(value, mapping, lookup=None):
     val_str = str(value)
     if lookup is not None:
-        # Si lookup fourni, on ne retourne que ce qui est dedans (respecte MAX_MULT)
         return sorted(lookup.get(val_str, []), key=_sort_key)
     results = []
     for sig, (nom, contenu, rarete) in mapping.items():
@@ -628,6 +608,7 @@ def find_matches(value, mapping, lookup=None):
 class RegionSelector:
     def __init__(self, parent):
         self.result = None
+        self._too_small = False  # FIX v0.3.1 : flag zone trop petite
         self._start_x = self._start_y = 0
         self._rect = None
 
@@ -680,6 +661,8 @@ class RegionSelector:
         y2 = max(self._start_y, e.y) + self._offset_y
         if (x2 - x1) > 10 and (y2 - y1) > 10:
             self.result = {"left": x1, "top": y1, "width": x2-x1, "height": y2-y1}
+        else:
+            self._too_small = True  # FIX v0.3.1 : zone trop petite, on signale
         self.win.destroy()
 
 
@@ -706,7 +689,6 @@ class PrefsWindow:
         tk.Label(win, text=T("prefs_heading"),
                  bg=BG, fg=ACCENT, font=("Courier", 11, "bold")).pack(pady=(14, 4))
 
-        # Légende alignée comme les boutons : ✓ préféré  —  neutre  ✕ exclu
         legend_frame = tk.Frame(win, bg=BG)
         legend_frame.pack(pady=(0, 6))
         for symbol, key_fr, key_en in [
@@ -830,7 +812,6 @@ class PrefsWindow:
             row.pack(fill="x", pady=2, padx=4)
             row.bind("<MouseWheel>", _scroll)
 
-            # Étoiles rareté (pleines en or, vides en gris foncé)
             stars_data = _stars(rarete)
             star_frame = tk.Frame(row, bg=BG_ROW, width=50)
             star_frame.pack(side="left", padx=(6, 2))
@@ -897,7 +878,6 @@ class PrefsWindow:
             btn.config(bg=new_bg)
             for child in btn.winfo_children():
                 child.config(bg=new_bg)
-                # Met à jour le fg du label "Tous"
                 if isinstance(child, tk.Label) and child.cget("text") == T("prefs_all"):
                     child.config(fg=BG if is_active else MUTED)
         self._apply_filters()
@@ -905,10 +885,8 @@ class PrefsWindow:
     def _apply_filters(self):
         raw = self.search_var.get()
         query = "" if raw == T("prefs_search") else raw.lower()
-        # D'abord masquer tout
         for nom, (btn_neutre, btn_prefere, btn_exclu, row, rarete) in self.btns.items():
             row.pack_forget()
-        # Puis réafficher dans l'ordre alphabétique
         for nom in sorted(self.btns.keys()):
             btn_neutre, btn_prefere, btn_exclu, row, rarete = self.btns[nom]
             visible = True
@@ -1020,17 +998,13 @@ class Menu:
         canvas.create_rectangle(x+t*2, y, x+w,   y+h, fill="#EF4135", outline="")
 
     def _draw_flag_gb(self, canvas, x, y, w=22, h=14):
-        """Mini Union Jack reconnaissable : fond bleu, diagonales blanches, croix rouge."""
-        # Fond bleu
+        """Mini Union Jack reconnaissable."""
         canvas.create_rectangle(x, y, x+w, y+h, fill="#012169", outline="")
-        # Diagonales blanches épaisses (Saint-André)
         canvas.create_line(x, y, x+w, y+h, fill="#FFFFFF", width=4)
         canvas.create_line(x+w, y, x, y+h, fill="#FFFFFF", width=4)
-        # Croix blanche (Saint-Georges épaisse)
         mx, my = x+w//2, y+h//2
         canvas.create_rectangle(mx-3, y,  mx+3, y+h, fill="#FFFFFF", outline="")
         canvas.create_rectangle(x, my-2, x+w, my+2, fill="#FFFFFF", outline="")
-        # Croix rouge (Saint-Georges fine)
         canvas.create_rectangle(mx-2, y,  mx+2, y+h, fill="#C8102E", outline="")
         canvas.create_rectangle(x, my-1, x+w, my+1, fill="#C8102E", outline="")
 
@@ -1055,12 +1029,10 @@ class Menu:
             self._btn_debug.config(text="DEBUG: ON", fg=ACCENT)
             try:
                 import datetime, shutil
-                # Vide le dossier debug_ocr
                 debug_dir = _BASE_DIR / "debug_ocr"
                 if debug_dir.exists():
                     shutil.rmtree(debug_dir)
                 debug_dir.mkdir(exist_ok=True)
-                # Démarre le log
                 log_file = _BASE_DIR / "debug.log"
                 with open(log_file, "w", encoding="utf-8") as f:
                     f.write(f"=== DEBUG SESSION {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
@@ -1101,6 +1073,18 @@ class Menu:
             selector = RegionSelector(self.root)
             if selector.result:
                 CONFIG_FILE.write_text(json.dumps(selector.result, indent=2))
+            elif selector._too_small:
+                # FIX v0.3.1 : zone trop petite → message clair à l'utilisateur
+                import tkinter.messagebox as mb
+                mb.showwarning(
+                    T("calib_title"),
+                    "La zone sélectionnée est trop petite.\n"
+                    "Dessinez un cadre plus large autour du nombre."
+                    if LANG == "FR" else
+                    "Selected zone is too small.\n"
+                    "Draw a larger frame around the number."
+                )
+            # else : annulé via Escape, comportement normal
         except Exception as e:
             print(f"Erreur calibration : {e}")
         finally:
@@ -1143,7 +1127,7 @@ class App:
         self.region    = region
         self.mapping   = mapping
         self.lookup    = build_lookup(mapping)
-        update_value_range(mapping)  # ajuste MIN/MAX_VALUE depuis le CSV réel
+        update_value_range(mapping)
         self.history   = []
         self.font_size = 10
         self.confirmed_value = None
@@ -1304,9 +1288,9 @@ class App:
         for i, (sig, nom, contenu, rarete, mult) in enumerate(matches):
             etat_nom = self.prefs.get(nom, "neutre")
             if etat_nom == "prefere":
-                row_bg = "#0d2010"  # fond vert très sombre
+                row_bg = "#0d2010"
             elif etat_nom == "exclu":
-                row_bg = "#200d0d"  # fond rouge très sombre
+                row_bg = "#200d0d"
             else:
                 row_bg = BG_ROW if i % 2 == 0 else BG_ROW_ALT
             row = tk.Frame(self.result_frame, bg=row_bg, pady=4)
@@ -1315,7 +1299,6 @@ class App:
             line = tk.Frame(row, bg=row_bg)
             line.pack(fill="x", padx=6)
 
-            # Étoiles rareté (pleines en or, vides en gris foncé)
             stars_data = _stars(rarete)
             if stars_data:
                 full, empty = stars_data
@@ -1335,7 +1318,6 @@ class App:
                      bg=row_bg, fg=TEXT,
                      font=("Courier", self.font_size - 1), anchor="w").pack(side="left")
 
-            # ✓/✕ sur le nom du rocher
             if etat_nom == "prefere":
                 tk.Label(line, text="✓",
                          bg=row_bg, fg=GREEN,
@@ -1345,14 +1327,12 @@ class App:
                          bg=row_bg, fg=RED,
                          font=("Courier", self.font_size, "bold"), anchor="e").pack(side="right", padx=6)
 
-            # Contenu avec ✓/✕ et étoiles par item
             if contenu:
                 for item in contenu.split("/"):
                     item = item.strip()
                     if not item:
                         continue
                     etat_item = self.prefs.get(item, "neutre")
-                    # Cherche la rareté de cet item dans le mapping
                     item_rarete = ""
                     for sig2, (nom2, contenu2, rarete2) in self.mapping.items():
                         if nom2 == item:
@@ -1402,13 +1382,10 @@ class App:
                 if len(self.history) > HISTORY_SIZE:
                     self.history.pop(0)
 
-                # Reset si aucune lecture valide depuis un moment
                 if raw is None:
                     none_streak += 1
                 else:
                     none_streak = 0
-                    # Déclenche l'animation dès la première lecture différente
-                    # de la valeur confirmée (sans attendre le seuil de vote)
                     if self.confirmed_value is not None and not self._loading_active:
                         confirmed_variants = _get_variantes(self.confirmed_value, self.mapping, self.lookup)
                         confirmed_variants.add(self.confirmed_value)
@@ -1417,15 +1394,13 @@ class App:
                     elif self.confirmed_value is None and raw is not None and not self._loading_active:
                         self.root.after(0, self._start_loading)
 
-                # Reset additionnel : si la valeur confirmée n'apparaît plus
-                # dans les 3 dernières frames (ni elle ni ses variantes)
                 if self.confirmed_value is not None and len(self.history) >= 3:
                     recent = self.history[-3:]
                     confirmed_variants = _get_variantes(self.confirmed_value, self.mapping, self.lookup)
                     confirmed_variants.add(self.confirmed_value)
                     seen_confirmed = any(v in confirmed_variants for v in recent if v is not None)
                     if not seen_confirmed:
-                        none_streak = 3  # force le reset ci-dessous
+                        none_streak = 3
 
                 if none_streak >= 3 and self.confirmed_value is not None:
                     self.confirmed_value = None
@@ -1433,34 +1408,24 @@ class App:
                     none_streak = 0
                     self.root.after(0, self._show_placeholder)
 
-                # ── Vote ──────────────────────────────────────────────────────
-                # Compte uniquement les lectures valides (non None)
                 valid = [v for v in self.history if v is not None]
                 if len(valid) < VOTE_THRESHOLD:
                     time.sleep(INTERVAL)
                     continue
 
-                # Regroupe les variantes OCR ensemble,
-                # SAUF si deux valeurs matchent toutes les deux dans le CSV
-                # Note: on utilise _get_variantes SANS lookup ici pour que
-                # le groupement fonctionne correctement (le lookup retire trop de valeurs)
                 csv_cache = {v: bool(find_matches(int(v), self.mapping, self.lookup)) for v in set(valid)}
-                groups = {}  # représentant → {valeur: count}
+                groups = {}
                 for v in valid:
                     found = None
                     for rep in list(groups.keys()):
-                        # Même valeur → toujours regrouper
                         if v == rep:
                             found = rep
                             break
                         are_variants = v in _get_variantes(rep) or rep in _get_variantes(v)
                         if DEBUG_OCR and (v in ['3370','3570'] or rep in ['3370','3570']):
                             _debug_log(f"[GROUP] v={v} rep={rep} are_variants={are_variants} csv_v={bool(csv_cache.get(v))} csv_rep={bool(csv_cache.get(rep))}")
-                        # Deux vraies signatures CSV distinctes ET pas variantes OCR → groupes séparés
                         if csv_cache.get(v) and csv_cache.get(rep) and not are_variants:
                             continue
-                        # Une valeur sans match CSV et une avec → groupes séparés
-                        # (évite que 64740 soit groupé avec 4240)
                         if bool(csv_cache.get(v)) != bool(csv_cache.get(rep)):
                             continue
                         if are_variants:
@@ -1471,20 +1436,10 @@ class App:
                     else:
                         groups[found][v] = groups[found].get(v, 0) + 1
 
-                # Choisit le groupe avec le plus de votes
                 best_rep = max(groups, key=lambda r: sum(groups[r].values()))
                 best_count = sum(groups[best_rep].values())
                 val_counts = groups[best_rep]
 
-                # Sélection de la valeur gagnante dans le groupe :
-                # - Plus de votes = priorité absolue
-                # - Égalité de votes ET les deux matchent CSV → préfère la plus LONGUE
-                #   (le '1' manquant donne une valeur plus courte : 7200 vs 17200)
-                # - Égalité de votes ET seule la plus longue matche → préfère la plus COURTE
-                #   (chiffre parasite devant : 72000 vs 2000)
-                # Choisit le représentant de chaque groupe : la valeur avec le plus de votes,
-                # mais si toutes les valeurs du groupe matchent CSV → on garde la clé du groupe
-                # (premier arrivé = plus fiable comme base)
                 all_csv = all(bool(find_matches(int(v), self.mapping, self.lookup)) for v in val_counts)
 
                 def _score(v):
@@ -1493,7 +1448,6 @@ class App:
                     length_pref = len(v) if has_match else -len(v)
                     base_sig = min((e[0] for e in self.lookup.get(v, [])), default=999999)
                     if all_csv:
-                        # Variantes CSV → ignorer les votes, préférer longueur puis base_sig min
                         return (length_pref, -base_sig)
                     return (cnt, length_pref, -base_sig)
 
@@ -1501,8 +1455,6 @@ class App:
                 if DEBUG_OCR:
                     _debug_log(f"[VOTE] candidate={candidate} best={best_count}/{len(valid)} groups={list(groups.keys())} all_csv={all_csv}")
 
-                # Déclenche l'animation dès qu'un candidat différent de la valeur
-                # confirmée commence à émerger dans le vote
                 if candidate != self.confirmed_value and not self._loading_active:
                     confirmed_variants = _get_variantes(self.confirmed_value or "", self.mapping, self.lookup)
                     if candidate not in confirmed_variants:
@@ -1517,8 +1469,6 @@ class App:
                     if DEBUG_OCR:
                         _debug_log(f"[VARCHECK] confirmed={self.confirmed_value} candidate={candidate} in_variants={candidate in confirmed_variants}")
                     if candidate in confirmed_variants:
-                        # Si all_csv et candidate meilleur (base_sig plus petite) → correction silencieuse
-                        # Seulement si candidate a accumulé au moins VOTE_THRESHOLD votes
                         if all_csv and candidate != self.confirmed_value:
                             candidate_votes = sum(g.get(candidate, 0) for g in groups.values())
                             cur_base = min((e[0] for e in self.lookup.get(self.confirmed_value, [])), default=999999)
@@ -1527,7 +1477,6 @@ class App:
                                 if DEBUG_OCR:
                                     _debug_log(f"[FIXUP] {self.confirmed_value} → {candidate} (base {cur_base} → {new_base})")
                                 self.confirmed_value = candidate
-                                c = candidate
                                 self.root.after(0, self._update_ui, candidate,
                                                 find_matches(int(candidate), self.mapping, self.lookup))
                         time.sleep(INTERVAL)
@@ -1537,7 +1486,6 @@ class App:
                         [(v, c) for g in groups.values() for v, c in g.items()
                          if v == self.confirmed_value or v in confirmed_variants]
                     )
-                    # La nouvelle valeur doit dépasser l'ancienne d'au moins 8 votes
                     if best_count <= old_count + 7:
                         time.sleep(INTERVAL)
                         continue
@@ -1564,8 +1512,6 @@ class App:
 
 if __name__ == "__main__":
     import sys as _sys_main
-    # Si --lang FR ou --lang EN est passé (depuis l'installeur), on l'applique
-    # uniquement si preferences.json n'existe pas encore (première installation)
     _args = _sys_main.argv[1:]
     if "--lang" in _args:
         idx = _args.index("--lang")
