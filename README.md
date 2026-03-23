@@ -1,4 +1,4 @@
-# Star Detection v0.3
+# Star Detection v0.3.1
 
 Outil de détection de signatures radar pour Star Citizen 4.7.
 
@@ -6,6 +6,8 @@ Outil de détection de signatures radar pour Star Citizen 4.7.
 1. Téléchargez StarDetection_Setup_v0.3.exe
 2. Lancez l'installeur et suivez les instructions
 3. Un raccourci apparaît sur le bureau
+
+> L'application s'installe dans AppData\Local\StarDetection — aucun droit administrateur requis
 
 ## Utilisation
 1. Lancez Star Detection
@@ -27,6 +29,16 @@ Outil de détection de signatures radar pour Star Citizen 4.7.
 - Windows 10/11 64-bit
 - 400 Mo d'espace disque libre
 - Résolution minimum : 1920x1080
+
+## Historique des versions
+### v0.3.1
+
+- Correctif : chemin d'installation changé vers AppData\Local — corrige l'erreur "Aucune zone calibrée" au premier lancement
+- Correctif : message d'avertissement si la zone calibrée est trop petite
+
+### v0.3
+
+Version initiale
   
 ## Crédits
 - Par Kainan & Claude AI
